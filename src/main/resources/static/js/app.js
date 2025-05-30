@@ -22,6 +22,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             });
             video.srcObject = stream;
+            // 添加鏡像反轉樣式
+            video.style.transform = 'scaleX(-1)';
         } catch (err) {
             console.error('Error accessing camera:', err);
             alert('無法訪問相機，請確保已授予相機權限。');
@@ -34,8 +36,17 @@ document.addEventListener('DOMContentLoaded', () => {
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
         
+        // 保存當前變換狀態
+        context.save();
+        // 水平翻轉畫布
+        context.translate(canvas.width, 0);
+        context.scale(-1, 1);
+        
         // 繪製視頻幀到 canvas
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        // 恢復變換狀態
+        context.restore();
         
         // 如果選擇了相框，添加相框
         if (selectedFrame) {
