@@ -4,6 +4,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const captureBtn = document.getElementById('capture-btn');
     const retakeBtn = document.getElementById('retake-btn');
     const photoPreview = document.getElementById('photo-preview');
+    const downloadBtn = document.getElementById('download-btn');
     const resultContainer = document.getElementById('result-container');
     const qrCode = document.getElementById('qr-code');
     const frameOptions = document.querySelectorAll('.frame-option');
@@ -67,55 +68,84 @@ document.addEventListener('DOMContentLoaded', () => {
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
 
-        // object-fit: cover 計算 for video
+        // object-fit: cover 計算 for video 和相框/人物
         const videoAspect = video.videoWidth / video.videoHeight;
         const canvasAspect = canvas.width / canvas.height;
-        let vDrawWidth, vDrawHeight, vOffsetX, vOffsetY;
-        if (videoAspect > canvasAspect) {
-            // video 比較寬，左右裁切
-            vDrawHeight = canvas.height;
-            vDrawWidth = video.videoWidth * (canvas.height / video.videoHeight);
-            vOffsetX = (canvas.width - vDrawWidth) / 2;
-            vOffsetY = 0;
-        } else {
-            // video 比較高，上下裁切
-            vDrawWidth = canvas.width;
-            vDrawHeight = video.videoHeight * (canvas.width / video.videoWidth);
-            vOffsetX = 0;
-            vOffsetY = (canvas.height - vDrawHeight) / 2;
-        }
 
-        // 鏡像翻轉
+        // 繪製 Video (最底層)
+        const vDrawPos = calculateObjectFitCoverDrawPos(video.videoWidth, video.videoHeight, canvas.width, canvas.height);
         context.save();
         context.translate(canvas.width, 0);
         context.scale(-1, 1);
-        context.drawImage(video, vOffsetX, vOffsetY, vDrawWidth, vDrawHeight);
+        context.drawImage(video, vDrawPos.x, vDrawPos.y, vDrawPos.width, vDrawPos.height);
         context.restore();
 
-        // 疊加相框（object-fit: cover）
-        if (selectedFrame) {
-            const frameImg = new Image();
-            frameImg.src = `/images/frames/${selectedFrame}.png`;
-            frameImg.onload = () => {
-                const frameAspect = frameImg.width / frameImg.height;
-                let drawWidth, drawHeight, offsetX, offsetY;
-                if (frameAspect > canvasAspect) {
-                    drawHeight = canvas.height;
-                    drawWidth = frameImg.width * (canvas.height / frameImg.height);
-                    offsetX = (canvas.width - drawWidth) / 2;
-                    offsetY = 0;
-                } else {
-                    drawWidth = canvas.width;
-                    drawHeight = frameImg.height * (canvas.width / frameImg.width);
-                    offsetX = 0;
-                    offsetY = (canvas.height - drawHeight) / 2;
-                }
-                context.drawImage(frameImg, offsetX, offsetY, drawWidth, drawHeight);
-                uploadPhoto();
-            };
-            frameImg.onerror = uploadPhoto;
-        } else {
-            uploadPhoto();
+        // 繪製背景人物 (中間層)
+        const characterImg = new Image();
+        characterImg.src = '/images/frames/background-character.png';
+        characterImg.onload = () => {
+            const cssCharWidth = 210;
+            const cssCharHeight = 280;
+            const cssBottomOffset = 0;
+            const cssRightOffset = 200;
+
+            const container = document.querySelector('.camera-container');
+            if (!container || container.offsetWidth === 0 || container.offsetHeight === 0) {
+                 console.error('Camera container has no dimensions, cannot draw character correctly.');
+                 drawFrame(); // 跳過人物，直接繪製相框
+                 return;
+            }
+            const containerWidth = container.offsetWidth;
+            const containerHeight = container.offsetHeight;
+            const scaleX = canvas.width / containerWidth;
+            const scaleY = canvas.height / containerHeight;
+
+            const drawCharWidth = cssCharWidth * scaleX;
+            const drawCharHeight = cssCharHeight * scaleY;
+            const drawCharX = canvas.width - drawCharWidth - cssRightOffset * scaleX;
+            const drawCharY = canvas.height - drawCharHeight - cssBottomOffset * scaleY;
+
+            context.drawImage(characterImg, drawCharX, drawCharY, drawCharWidth, drawCharHeight);
+            drawFrame(); // 繪製完人物後繪製相框
+        };
+        characterImg.onerror = () => {
+             console.error('Error loading character image for capture.');
+             drawFrame(); // 如果人物圖加載失敗，仍然繪製相框
+        };
+
+        //  helper 函數，計算 object-fit: cover 的繪製位置和大小
+        function calculateObjectFitCoverDrawPos(imgWidth, imgHeight, targetWidth, targetHeight) {
+             const imgAspect = imgWidth / imgHeight;
+             const targetAspect = targetWidth / targetHeight;
+             let drawWidth, drawHeight, offsetX, offsetY;
+             if (imgAspect > targetAspect) {
+                 drawHeight = targetHeight;
+                 drawWidth = imgWidth * (targetHeight / imgHeight);
+                 offsetX = (targetWidth - drawWidth) / 2;
+                 offsetY = 0;
+             } else {
+                 drawWidth = targetWidth;
+                 drawHeight = imgHeight * (targetWidth / imgWidth);
+                 offsetX = 0;
+                 offsetY = (targetHeight - drawHeight) / 2;
+             }
+             return { x: offsetX, y: offsetY, width: drawWidth, height: drawHeight };
+        }
+
+        // 繪製相框 (最上層)
+        function drawFrame() {
+            if (selectedFrame) {
+                const frameImg = new Image();
+                frameImg.src = `/images/frames/${selectedFrame}.png`;
+                frameImg.onload = () => {
+                     const frameDrawPos = calculateObjectFitCoverDrawPos(frameImg.width, frameImg.height, canvas.width, canvas.height);
+                     context.drawImage(frameImg, frameDrawPos.x, frameDrawPos.y, frameDrawPos.width, frameDrawPos.height);
+                     uploadPhoto(); // 最後繪製完相框再上傳
+                };
+                frameImg.onerror = uploadPhoto; // 如果相框加載失敗，直接上傳 (不包含相框)
+            } else {
+                 uploadPhoto(); // 沒有選相框，直接上傳 video 和人物
+            }
         }
     }
 
@@ -133,22 +163,46 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: formData
             });
 
-            const data = await response.json(); // 先嘗試解析 JSON，包含照片數據
-
             if (response.ok) {
-                // 如果狀態碼是 2xx，表示成功
+                // 如果狀態碼是 2xx，表示成功，解析 JSON 並顯示結果
+                const data = await response.json();
                 displayResult(data);
+                console.log('Photo uploaded and processed successfully.');
             } else {
-                // 如果狀態碼不是 2xx，表示後端有錯誤
-                console.error('Upload failed with status:', response.status, data);
-                // 顯示照片（因為後端回傳了），同時提示後端有錯誤
-                displayResult(data); // 即使有錯，仍顯示後端回傳的照片和數據
-                alert(`上傳處理完成，但伺服器回報錯誤 (${response.status}): ${data.message || JSON.stringify(data)}`);
+                // 如果狀態碼不是 2xx，表示後端有錯誤，嘗試讀取錯誤訊息
+                let errorDetails = `伺服器回報錯誤 (${response.status})`;
+                let data = {}; // 初始化 data 物件
+
+                try {
+                    // 嘗試解析 JSON，看後端是否有回傳錯誤細節或照片數據
+                    data = await response.json();
+                    errorDetails += `: ${data.message || JSON.stringify(data)}`;
+                } catch (jsonErr) {
+                    // 如果解析 JSON 失敗 (後端回傳非 JSON)，嘗試讀取文本
+                    console.warn('Failed to parse error response as JSON, trying text:', jsonErr);
+                    try {
+                         const textBody = await response.text();
+                         errorDetails += `: ${textBody}`;
+                    } catch (textErr) {
+                         console.error('Failed to read error response as text:', textErr);
+                         errorDetails += `: (無法讀取回應內容)`;
+                    }
+                }
+
+                console.error('Upload failed:', response.status, data || errorDetails);
+                // 即使後端回報錯誤，如果回應中有照片數據，仍然顯示
+                if (data && data.photoBase64) {
+                     displayResult(data); // 顯示後端回傳的照片
+                     alert(`上傳處理完成，但${errorDetails}`);
+                } else {
+                     // 如果沒有照片數據，只顯示錯誤訊息
+                     alert(`上傳照片失敗：${errorDetails}`);
+                }
             }
         } catch (err) {
-            // 真正的網路錯誤或 JSON 解析錯誤
-            console.error('Error during upload or processing response:', err);
-            alert('上傳照片時發生連線或資料處理錯誤，請檢查伺服器。');
+            // 真正的網路連線錯誤 (例如伺服器無回應)
+            console.error('Error during network request or response processing:', err);
+            alert('上傳照片時發生網路連線或資料處理錯誤，請檢查伺服器是否運行及網路狀態。');
         }
     }
 
@@ -168,6 +222,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // 錯誤時，按鈕和相框選擇恢復到初始狀態 (或維持拍照後的狀態，這裡選擇恢復初始)
             captureBtn.style.display = 'inline-block';
             retakeBtn.style.display = 'none';
+            downloadBtn.style.display = 'none';
             document.querySelector('.frame-selection').style.display = 'block';
             return;
         }
@@ -176,16 +231,13 @@ document.addEventListener('DOMContentLoaded', () => {
         photoPreview.innerHTML = `<img src="data:image/jpeg;base64,${data.photoBase64}" alt="Captured photo">`;
         photoPreview.style.display = 'block'; // 確保 photoPreview 區塊本身可見
 
-        // 隱藏 QR Code (如果不需要顯示)
-        qrCode.innerHTML = '';
-        resultContainer.style.display = 'none';
-
         // 隱藏相框選擇區 (如果只需要在預覽時選擇)
         document.querySelector('.frame-selection').style.display = 'none';
 
-        // 切換按鈕：顯示重拍，隱藏拍照
+        // 切換按鈕：顯示重拍和下載，隱藏拍照
         captureBtn.style.display = 'none';
         retakeBtn.style.display = 'inline-block';
+        downloadBtn.style.display = 'inline-block'; // 顯示下載按鈕
     }
 
     // 重拍
@@ -198,12 +250,10 @@ document.addEventListener('DOMContentLoaded', () => {
         framePreview.style.display = 'block'; // 確保相框預覽可見
         video.style.display = 'block'; // 確保視訊鏡頭可見
 
-        // 隱藏結果容器 (如果它還顯示著 QR Code 之類的)
-        resultContainer.style.display = 'none';
-
-        // 切換按鈕：顯示拍照，隱藏重拍
+        // 切換按鈕：顯示拍照，隱藏重拍和下載
         captureBtn.style.display = 'inline-block';
         retakeBtn.style.display = 'none';
+        downloadBtn.style.display = 'none'; // 隱藏下載按鈕
 
         // 顯示相框選擇區
         document.querySelector('.frame-selection').style.display = 'block';
@@ -222,6 +272,19 @@ document.addEventListener('DOMContentLoaded', () => {
     // 事件監聽器
     captureBtn.addEventListener('click', capturePhoto);
     retakeBtn.addEventListener('click', retake);
+
+    // 下載按鈕點擊事件
+    downloadBtn.addEventListener('click', () => {
+        const img = photoPreview.querySelector('img');
+        if (img) {
+            const link = document.createElement('a');
+            link.href = img.src; // 使用 img 的 src (Base64 資料)
+            link.download = 'photobooth_photo.jpg'; // 指定下載檔案名稱
+            link.click(); // 模擬點擊下載連結
+        } else {
+            alert('沒有照片可以下載！');
+        }
+    });
 
     // 初始化相機
     initCamera();
