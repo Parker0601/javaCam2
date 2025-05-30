@@ -7,6 +7,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const resultContainer = document.getElementById('result-container');
     const qrCode = document.getElementById('qr-code');
     const frameOptions = document.querySelectorAll('.frame-option');
+    const framePreview = document.getElementById('frame-preview');
     
     let selectedFrame = null;
     let stream = null;
@@ -24,14 +25,39 @@ document.addEventListener('DOMContentLoaded', () => {
             video.srcObject = stream;
             // 添加鏡像反轉樣式
             video.style.transform = 'scaleX(-1)';
+            
+            // 等待視頻加載完成
+            video.onloadedmetadata = () => {
+                console.log('Video loaded successfully');
+            };
         } catch (err) {
             console.error('Error accessing camera:', err);
             alert('無法訪問相機，請確保已授予相機權限。');
         }
     }
 
+    // 更新相框預覽
+    function updateFramePreview(frameName) {
+        console.log('Updating frame preview with:', frameName);
+        if (frameName) {
+            const frameImg = new Image();
+            frameImg.src = `/images/frames/${frameName}.png`;
+            frameImg.onload = () => {
+                framePreview.innerHTML = '';
+                framePreview.appendChild(frameImg);
+                console.log('Frame preview updated');
+            };
+            frameImg.onerror = () => {
+                console.error('Error loading frame image:', frameName);
+            };
+        } else {
+            framePreview.innerHTML = '';
+        }
+    }
+
     // 拍照
     function capturePhoto() {
+        console.log('Capturing photo...');
         const context = canvas.getContext('2d');
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
@@ -56,6 +82,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 context.drawImage(frameImg, 0, 0, canvas.width, canvas.height);
                 uploadPhoto();
             };
+            frameImg.onerror = () => {
+                console.error('Error loading frame for capture:', selectedFrame);
+                uploadPhoto(); // 如果相框加載失敗，仍然上傳照片
+            };
         } else {
             uploadPhoto();
         }
@@ -63,6 +93,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 上傳照片
     async function uploadPhoto() {
+        console.log('Uploading photo...');
         const photoData = canvas.toDataURL('image/jpeg');
         const blob = await (await fetch(photoData)).blob();
         const formData = new FormData();
@@ -88,15 +119,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 顯示結果
     function displayResult(data) {
+        // 隱藏相框預覽
+        framePreview.style.display = 'none';
         // 顯示照片預覽
         photoPreview.innerHTML = `<img src="data:image/jpeg;base64,${data.photoBase64}" alt="Captured photo">`;
-        
         // 顯示 QR Code
         qrCode.innerHTML = `<img src="data:image/png;base64,${data.qrCodeBase64}" alt="QR Code">`;
-        
         // 顯示結果容器
         resultContainer.style.display = 'block';
-        
         // 切換按鈕
         captureBtn.style.display = 'none';
         retakeBtn.style.display = 'inline-block';
@@ -108,6 +138,8 @@ document.addEventListener('DOMContentLoaded', () => {
         resultContainer.style.display = 'none';
         captureBtn.style.display = 'inline-block';
         retakeBtn.style.display = 'none';
+        // 重拍時顯示相框預覽
+        framePreview.style.display = 'block';
     }
 
     // 選擇相框
@@ -116,6 +148,7 @@ document.addEventListener('DOMContentLoaded', () => {
             frameOptions.forEach(opt => opt.classList.remove('selected'));
             option.classList.add('selected');
             selectedFrame = option.dataset.frame;
+            updateFramePreview(selectedFrame);
         });
     });
 
