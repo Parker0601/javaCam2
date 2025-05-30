@@ -133,47 +133,80 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: formData
             });
 
+            const data = await response.json(); // 先嘗試解析 JSON，包含照片數據
+
             if (response.ok) {
-                const data = await response.json();
+                // 如果狀態碼是 2xx，表示成功
                 displayResult(data);
             } else {
-                throw new Error('Upload failed');
+                // 如果狀態碼不是 2xx，表示後端有錯誤
+                console.error('Upload failed with status:', response.status, data);
+                // 顯示照片（因為後端回傳了），同時提示後端有錯誤
+                displayResult(data); // 即使有錯，仍顯示後端回傳的照片和數據
+                alert(`上傳處理完成，但伺服器回報錯誤 (${response.status}): ${data.message || JSON.stringify(data)}`);
             }
         } catch (err) {
-            console.error('Error uploading photo:', err);
-            alert('上傳照片時發生錯誤，請重試。');
+            // 真正的網路錯誤或 JSON 解析錯誤
+            console.error('Error during upload or processing response:', err);
+            alert('上傳照片時發生連線或資料處理錯誤，請檢查伺服器。');
         }
     }
 
     // 顯示結果
     function displayResult(data) {
-        framePreview.style.display = 'none';
-        video.style.display = 'none'; // 拍照後隱藏鏡頭
+        // 相框預覽在拍照後可以保留在鏡頭上，或者隱藏
+        // 如果你想讓即時預覽一直顯示，這裡可以不隱藏 framePreview
+        // framePreview.style.display = 'none'; // 如果不想保留即時相框，就取消這行註解
+
+        // 視訊鏡頭保持顯示
+        video.style.display = 'block';
+
         console.log('photoBase64:', data.photoBase64 ? data.photoBase64.substring(0, 100) : 'EMPTY');
         if (!data.photoBase64) {
             photoPreview.innerHTML = '<div style="color:red;">照片資料為空，請檢查後端API回傳！</div>';
-            photoPreview.style.display = 'block';
+            photoPreview.style.display = 'block'; // 確保 photoPreview 區塊本身可見
+            // 錯誤時，按鈕和相框選擇恢復到初始狀態 (或維持拍照後的狀態，這裡選擇恢復初始)
+            captureBtn.style.display = 'inline-block';
+            retakeBtn.style.display = 'none';
+            document.querySelector('.frame-selection').style.display = 'block';
             return;
         }
-        photoPreview.innerHTML = `<img src=\"data:image/jpeg;base64,${data.photoBase64}\" alt=\"Captured photo\">`;
-        photoPreview.style.display = 'block';
+
+        // 顯示照片預覽
+        photoPreview.innerHTML = `<img src="data:image/jpeg;base64,${data.photoBase64}" alt="Captured photo">`;
+        photoPreview.style.display = 'block'; // 確保 photoPreview 區塊本身可見
+
+        // 隱藏 QR Code (如果不需要顯示)
         qrCode.innerHTML = '';
         resultContainer.style.display = 'none';
+
+        // 隱藏相框選擇區 (如果只需要在預覽時選擇)
         document.querySelector('.frame-selection').style.display = 'none';
+
+        // 切換按鈕：顯示重拍，隱藏拍照
         captureBtn.style.display = 'none';
         retakeBtn.style.display = 'inline-block';
     }
 
     // 重拍
     function retake() {
+        // 清空並隱藏照片預覽
         photoPreview.innerHTML = '';
         photoPreview.style.display = 'none';
+
+        // 相框預覽與視訊鏡頭保持顯示
+        framePreview.style.display = 'block'; // 確保相框預覽可見
+        video.style.display = 'block'; // 確保視訊鏡頭可見
+
+        // 隱藏結果容器 (如果它還顯示著 QR Code 之類的)
         resultContainer.style.display = 'none';
+
+        // 切換按鈕：顯示拍照，隱藏重拍
         captureBtn.style.display = 'inline-block';
         retakeBtn.style.display = 'none';
-        framePreview.style.display = 'block';
+
+        // 顯示相框選擇區
         document.querySelector('.frame-selection').style.display = 'block';
-        video.style.display = 'block'; // 重拍時顯示鏡頭
     }
 
     // 選擇相框
