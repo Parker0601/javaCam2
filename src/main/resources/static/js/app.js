@@ -29,6 +29,11 @@ document.addEventListener('DOMContentLoaded', () => {
             // 等待視頻加載完成
             video.onloadedmetadata = () => {
                 console.log('Video loaded successfully');
+                // 動態設定 camera-container 和 photo-preview 的 aspect-ratio
+                const ratio = video.videoWidth / video.videoHeight;
+                document.querySelectorAll('.camera-container, #photo-preview').forEach(el => {
+                    el.style.aspectRatio = ratio;
+                });
             };
         } catch (err) {
             console.error('Error accessing camera:', err);
@@ -61,31 +66,54 @@ document.addEventListener('DOMContentLoaded', () => {
         const context = canvas.getContext('2d');
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
-        
-        // 保存當前變換狀態
+
+        // object-fit: cover 計算 for video
+        const videoAspect = video.videoWidth / video.videoHeight;
+        const canvasAspect = canvas.width / canvas.height;
+        let vDrawWidth, vDrawHeight, vOffsetX, vOffsetY;
+        if (videoAspect > canvasAspect) {
+            // video 比較寬，左右裁切
+            vDrawHeight = canvas.height;
+            vDrawWidth = video.videoWidth * (canvas.height / video.videoHeight);
+            vOffsetX = (canvas.width - vDrawWidth) / 2;
+            vOffsetY = 0;
+        } else {
+            // video 比較高，上下裁切
+            vDrawWidth = canvas.width;
+            vDrawHeight = video.videoHeight * (canvas.width / video.videoWidth);
+            vOffsetX = 0;
+            vOffsetY = (canvas.height - vDrawHeight) / 2;
+        }
+
+        // 鏡像翻轉
         context.save();
-        // 水平翻轉畫布
         context.translate(canvas.width, 0);
         context.scale(-1, 1);
-        
-        // 繪製視頻幀到 canvas
-        context.drawImage(video, 0, 0, canvas.width, canvas.height);
-        
-        // 恢復變換狀態
+        context.drawImage(video, vOffsetX, vOffsetY, vDrawWidth, vDrawHeight);
         context.restore();
-        
-        // 如果選擇了相框，添加相框
+
+        // 疊加相框（object-fit: cover）
         if (selectedFrame) {
             const frameImg = new Image();
             frameImg.src = `/images/frames/${selectedFrame}.png`;
             frameImg.onload = () => {
-                context.drawImage(frameImg, 0, 0, canvas.width, canvas.height);
+                const frameAspect = frameImg.width / frameImg.height;
+                let drawWidth, drawHeight, offsetX, offsetY;
+                if (frameAspect > canvasAspect) {
+                    drawHeight = canvas.height;
+                    drawWidth = frameImg.width * (canvas.height / frameImg.height);
+                    offsetX = (canvas.width - drawWidth) / 2;
+                    offsetY = 0;
+                } else {
+                    drawWidth = canvas.width;
+                    drawHeight = frameImg.height * (canvas.width / frameImg.width);
+                    offsetX = 0;
+                    offsetY = (canvas.height - drawHeight) / 2;
+                }
+                context.drawImage(frameImg, offsetX, offsetY, drawWidth, drawHeight);
                 uploadPhoto();
             };
-            frameImg.onerror = () => {
-                console.error('Error loading frame for capture:', selectedFrame);
-                uploadPhoto(); // 如果相框加載失敗，仍然上傳照片
-            };
+            frameImg.onerror = uploadPhoto;
         } else {
             uploadPhoto();
         }
@@ -119,15 +147,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 顯示結果
     function displayResult(data) {
-        // 隱藏相框預覽
         framePreview.style.display = 'none';
-        // 顯示照片預覽
-        photoPreview.innerHTML = `<img src="data:image/jpeg;base64,${data.photoBase64}" alt="Captured photo">`;
-        // 顯示 QR Code
-        qrCode.innerHTML = `<img src="data:image/png;base64,${data.qrCodeBase64}" alt="QR Code">`;
-        // 顯示結果容器
-        resultContainer.style.display = 'block';
-        // 切換按鈕
+        video.style.display = 'none'; // 拍照後隱藏鏡頭
+        console.log('photoBase64:', data.photoBase64 ? data.photoBase64.substring(0, 100) : 'EMPTY');
+        if (!data.photoBase64) {
+            photoPreview.innerHTML = '<div style="color:red;">照片資料為空，請檢查後端API回傳！</div>';
+            photoPreview.style.display = 'block';
+            return;
+        }
+        photoPreview.innerHTML = `<img src=\"data:image/jpeg;base64,${data.photoBase64}\" alt=\"Captured photo\">`;
+        photoPreview.style.display = 'block';
+        qrCode.innerHTML = '';
+        resultContainer.style.display = 'none';
+        document.querySelector('.frame-selection').style.display = 'none';
         captureBtn.style.display = 'none';
         retakeBtn.style.display = 'inline-block';
     }
@@ -135,11 +167,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // 重拍
     function retake() {
         photoPreview.innerHTML = '';
+        photoPreview.style.display = 'none';
         resultContainer.style.display = 'none';
         captureBtn.style.display = 'inline-block';
         retakeBtn.style.display = 'none';
-        // 重拍時顯示相框預覽
         framePreview.style.display = 'block';
+        document.querySelector('.frame-selection').style.display = 'block';
+        video.style.display = 'block'; // 重拍時顯示鏡頭
     }
 
     // 選擇相框
